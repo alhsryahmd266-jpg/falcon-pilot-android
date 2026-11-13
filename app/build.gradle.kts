@@ -33,6 +33,7 @@ android {
     androidResources { noCompress += "tflite" }
 }
 dependencies {
+    implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
     implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
     implementation("org.tensorflow:tensorflow-lite-gpu-api:2.14.0")

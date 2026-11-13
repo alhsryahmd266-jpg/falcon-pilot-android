@@ -35,6 +35,10 @@ object Bus {
     @Volatile var human = 0.6f
     @Volatile var dets: List<Det> = emptyList()
     @Volatile var status = ""
+    /** المساعد: true طالما إصبعك على زر النار (الطبقة الشفافة). */
+    @Volatile var assistHold = false
+    /** آخر لقطة شاشة (تصلح داخل خطوة القرار فقط). */
+    @Volatile var frame: android.graphics.Bitmap? = null
     val taps = ConcurrentLinkedQueue<PointF>()
 
     fun px(name: String): PointF {

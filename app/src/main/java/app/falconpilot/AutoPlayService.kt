@@ -59,6 +59,15 @@ class AutoPlayService : Service() {
     private var calib: FrameLayout? = null
     private var calibView: CalibView? = null
     private var calBtn: TextView? = null
+    private var assistOn = false
+    private var assistBtn: TextView? = null
+    private var assistBgd: GradientDrawable? = null
+    private var catcher: View? = null
+    private var catcherLp: WindowManager.LayoutParams? = null
+    private var savedBrain: Agent? = null
+    private var sigs: Signatures? = null
+    private var ocr: AllyOcr? = null
+    @Volatile private var lastTouchEvt = 0L
     private var curW = 0; private var curH = 0; private var dpi = 0
     private var frames = 0; private var fpsT = 0L; private var fps = 0
 
@@ -96,6 +105,7 @@ class AutoPlayService : Service() {
         setupCapture()
         addButton()
         addCalButton()
+        addAssistButton()
         if (cfg.debug) addDebug()
         main.postDelayed(watch, 1000)
         return START_NOT_STICKY
@@ -170,6 +180,7 @@ class AutoPlayService : Service() {
             }
             val res = d!!.detect(b, img.width, img.height)
             Bus.dets = res
+            Bus.frame = b
             brain?.step(res, img.width, img.height, d.thumb)
             frames++
             val now = SystemClock.uptimeMillis()
@@ -177,6 +188,103 @@ class AutoPlayService : Service() {
         } catch (e: Throwable) {
             Log.e("FP", "frame: $e")
         } finally { img.close() }
+    }
+
+
+    // ---------- مساعد الضرب ----------
+    private fun addAssistButton() {
+        val size = (46 * resources.displayMetrics.density).toInt()
+        val bgd = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xCC2E7D32.toInt()) }
+        val tv = TextView(this).apply { text = "🔫"; textSize = 18f; gravity = Gravity.CENTER; background = bgd }
+        val lp = WindowManager.LayoutParams(
+            size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = 36; y = 220 + (132 * resources.displayMetrics.density).toInt() }
+        tv.setOnClickListener { toggleAssist() }
+        wm.addView(tv, lp)
+        assistBtn = tv; assistBgd = bgd
+    }
+
+    private fun toggleAssist() {
+        val g = GestureService.instance
+        if (g == null) { toast("فعّل خدمة Falcon Pilot من إعدادات الوصول أولاً"); return }
+        if (det?.ready != true) { toast("النموذج غير جاهز"); return }
+        if (calib != null) { toast("أغلق المعايرة أولاً"); return }
+        if (!assistOn) {
+            if (Bus.active) { toast("أوقف اللعب الآلي ▶ أولاً"); return }
+            if (!cfg.calibrated) toast("⚠ ما اتعايرتش الأزرار: اضغط 🎯 ثم مسح تلقائي ثم حفظ ليتعرف على مكان زر النار")
+            val o = AllyOcr(); val sg = Signatures(java.io.File(filesDir, "sigs.txt"))
+            ocr = o; sigs = sg
+            savedBrain = brain
+            brain = AssistBrain(cfg, sg, o)
+            Bus.active = true; g.startPump()
+            assistOn = true
+            showCatcher()
+            assistBgd?.setColor(0xCCE53935.toInt()); assistBtn?.text = "⏹"
+            toast("المساعد شغّال: اضغط على الدائرة الخضراء (مكان زر النار) فيصوّب ويضرب تلقائياً")
+        } else {
+            hideCatcher()
+            Bus.assistHold = false; Bus.active = false; g.stopPump(); Bus.dets = emptyList()
+            brain = savedBrain
+            sigs?.save(); ocr?.close(); ocr = null; sigs = null
+            assistOn = false
+            assistBgd?.setColor(0xCC2E7D32.toInt()); assistBtn?.text = "🔫"
+        }
+    }
+
+    private fun setCatcherTouchable(on: Boolean) {
+        val v = catcher ?: return; val lp = catcherLp ?: return
+        lp.flags = if (on) lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                   else lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        try { wm.updateViewLayout(v, lp) } catch (_: Throwable) {}
+    }
+
+    private fun releaseHold() {
+        Bus.assistHold = false
+        setCatcherTouchable(true)
+        Bus.idle()
+    }
+
+    private val holdWatch = object : Runnable {
+        override fun run() {
+            if (!Bus.assistHold) return
+            if (SystemClock.uptimeMillis() - lastTouchEvt > 700) { releaseHold(); return }
+            main.postDelayed(this, 200)
+        }
+    }
+
+    private fun showCatcher() {
+        hideCatcher()
+        val size = (96 * resources.displayMetrics.density).toInt()
+        val fp = Bus.px("fire")
+        val bgd = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x2200E676); setStroke(5, 0xCC00E676.toInt()) }
+        val v = View(this).apply { background = bgd }
+        val lp = WindowManager.LayoutParams(
+            size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = (fp.x - size / 2).toInt(); y = (fp.y - size / 2).toInt() }
+        v.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastTouchEvt = SystemClock.uptimeMillis()
+                    Bus.assistHold = true
+                    setCatcherTouchable(false)   // كي تمر لمسة النار المحقونة إلى اللعبة تحت الطبقة
+                    main.postDelayed(holdWatch, 300)
+                }
+                MotionEvent.ACTION_MOVE -> lastTouchEvt = SystemClock.uptimeMillis()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> releaseHold()
+            }
+            true
+        }
+        wm.addView(v, lp)
+        catcher = v; catcherLp = lp
+    }
+
+    private fun hideCatcher() {
+        catcher?.let { try { wm.removeView(it) } catch (_: Throwable) {} }
+        catcher = null; catcherLp = null
     }
 
     // ---------- المعايرة ----------
@@ -196,6 +304,7 @@ class AutoPlayService : Service() {
 
     private fun startCalibration() {
         if (calib != null) return
+        if (assistOn) toggleAssist()
         if (Bus.active) { Bus.active = false; GestureService.instance?.stopPump(); btn?.text = "▶" }
         val pts = LinkedHashMap<String, PointF>()
         for (k in listOf("joy", "fire", "jump", "reload", "crouch", "heal", "aim")) pts[k] = Bus.px(k)
@@ -311,6 +420,7 @@ class AutoPlayService : Service() {
         if (g == null) { toast("فعّل خدمة Falcon Pilot من إعدادات الوصول أولاً"); return }
         if (det?.ready != true) { toast("النموذج غير جاهز — استورد ملف .tflite من التطبيق"); return }
         if (calib != null) { toast("أغلق المعايرة أولاً"); return }
+        if (assistOn) { toast("أوقف المساعد 🔫 أولاً"); return }
         if (!Bus.active) {
             Bus.active = true; g.startPump()
             tv.text = "■"; bgd.setColor(0xCCE53935.toInt())
@@ -338,6 +448,8 @@ class AutoPlayService : Service() {
         GestureService.instance?.stopPump()
         try { btn?.let { wm.removeView(it) } } catch (_: Throwable) {}
         try { calBtn?.let { wm.removeView(it) } } catch (_: Throwable) {}
+        try { assistBtn?.let { wm.removeView(it) } } catch (_: Throwable) {}
+        hideCatcher(); sigs?.save(); ocr?.close()
         closeCalibration()
         try { dbg?.let { wm.removeView(it) } } catch (_: Throwable) {}
         try { vd?.release() } catch (_: Throwable) {}
