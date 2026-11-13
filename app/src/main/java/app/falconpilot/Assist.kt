@@ -102,7 +102,7 @@ class Signatures(private val file: File) {
             y += sy
         }
         if (n == 0) return null
-        for (i in h.indices) h[i] /= n
+        for (i in h.indices) h[i] = h[i] / n.toFloat()
         return h
     }
 
