@@ -37,6 +37,7 @@ object Bus {
     @Volatile var status = ""
     /** المساعد: true طالما إصبعك على زر النار (الطبقة الشفافة). */
     @Volatile var assistHold = false
+    @Volatile var firePressed = false
     /** آخر لقطة شاشة (تصلح داخل خطوة القرار فقط). */
     @Volatile var frame: android.graphics.Bitmap? = null
     val taps = ConcurrentLinkedQueue<PointF>()

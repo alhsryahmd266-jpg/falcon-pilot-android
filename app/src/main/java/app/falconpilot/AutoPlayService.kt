@@ -61,6 +61,7 @@ class AutoPlayService : Service() {
     private var calBtn: TextView? = null
     private var assistOn = false
     private var autoCal = false
+    private var firstDetect = false
     private var assistBtn: TextView? = null
     private var assistBgd: GradientDrawable? = null
     private var catcher: View? = null
@@ -75,6 +76,14 @@ class AutoPlayService : Service() {
     override fun onBind(i: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        return try { startAll(intent) } catch (e: Throwable) {
+            try { Trace.log(this, "عطل بدء الخدمة: $e") } catch (_: Throwable) {}
+            try { Toast.makeText(this, "عطل أثناء التشغيل: $e", Toast.LENGTH_LONG).show() } catch (_: Throwable) {}
+            stopSelf(); START_NOT_STICKY
+        }
+    }
+
+    private fun startAll(intent: Intent?): Int {
         if (intent?.action == "stop") { stopSelf(); return START_NOT_STICKY }
         if (projection != null) return START_NOT_STICKY
         cfg = Config(this)
@@ -95,9 +104,12 @@ class AutoPlayService : Service() {
         Trace.log(this, "خدمة بدأت")
         bg.post {
           try {
+            if (cfg.loading) { cfg.crashCount = cfg.crashCount + 1; Trace.log(this, "المحاولة السابقة انهارت (${cfg.crashCount}) → وضع آمن") }
+            cfg.loading = true
             Trace.log(this, "تحميل النموذج…")
             val d = Detector(cfg)
             val ok = d.load()
+            cfg.loading = false
             Trace.log(this, if (ok) "النموذج جاهز ${d.info}" else "فشل النموذج ${d.info}")
             det = d
             if (cfg.usePolicy && cfg.policyFile.exists()) {
@@ -184,7 +196,9 @@ class AutoPlayService : Service() {
                 if (sc.frames >= 40 && !scanFinishing) { scanFinishing = true; val res = sc.result(); main.post { applyScan(res) } }
                 return
             }
+            if (!firstDetect) { cfg.loading = true; Trace.log(this, "أول اكتشاف…") }
             val res = d!!.detect(b, img.width, img.height)
+            if (!firstDetect) { firstDetect = true; cfg.loading = false; cfg.crashCount = 0; Trace.log(this, "أول اكتشاف نجح (${res.size} كائن)") }
             Bus.dets = res
             Bus.frame = b
             brain?.step(res, img.width, img.height, d.thumb)

@@ -35,6 +35,7 @@ class Detector(private val cfg: Config) {
     private var out: Array<Array<FloatArray>>? = null
 
     fun load(): Boolean {
+        if (cfg.crashCount >= 3) { info = "النموذج انهار 3 مرات على الجهاز؛ استورد نموذجاً آخر أو امسح سجل الأعطال"; return false }
         try {
             if (cfg.activeModel() == null) { info = "لا يوجد نموذج"; return false }
             labels = cfg.labels()
@@ -49,7 +50,12 @@ class Detector(private val cfg: Config) {
     private fun build(useGpu: Boolean) {
         close()
         val o = Interpreter.Options()
-        if (useGpu) { gpu = GpuDelegate(); o.addDelegate(gpu) } else o.setNumThreads(4)
+        if (useGpu) { gpu = GpuDelegate(); o.addDelegate(gpu) }
+        else {
+            val lvl = cfg.crashCount
+            o.setNumThreads(if (lvl >= 2) 1 else 4)
+            if (lvl >= 1) { try { o.setUseXNNPACK(false) } catch (_: Throwable) {} }
+        }
         val t = Interpreter(cfg.activeModel()!!, o)
         val ins = t.getInputTensor(0)
         val s = ins.shape()

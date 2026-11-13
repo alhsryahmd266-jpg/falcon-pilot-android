@@ -221,44 +221,73 @@ class FireWatch(private val cfg: Config, private val say: (String) -> Unit) {
     }
 }
 
-/**
- * مساعد الضرب: أنت تتحرك بإيدك. أول ما تضغط على زر النار (الطبقة الشفافة) يصوّب تلقائياً
- * (رأس ← صدر ← أي جزء ظاهر) على أي مجسم بشري أو عربية/طائرة، ويتجاهل من فوقه رقم 1..4.
- */
-class AssistBrain(private val cfg: Config, private val sigs: Signatures, private val ocr: AllyOcr, say: (String) -> Unit) : Agent {
-    val fw = FireWatch(cfg, say)
-    private val vehicle = setOf("vehicle", "helicopter", "car", "truck", "bus", "airplane", "motorcycle", "boat")
-    private var lastTx = 0f; private var lastTy = 0f; private var lastSeen = 0L
-    private var lockSince = 0L; private var learned = false
-    private var targetBox: RectF? = null
+/** يراقب شكل زر النار على الشاشة: لو اختلف عن شكله المعتاد (يغمق/يكبر/يتغطى) يعتبره مضغوطاً. */
+class FireWatch {
+    private var base: FloatArray? = null
+    private var onC = 0; private var offC = 0
+    @Volatile var pressed = false; private set
+    @Volatile var dev = 0f; private set
 
-    private fun aimPoint(d: Det): Pair<Float, Float> {
-        val b = d.box; val h = b.height(); val w = b.width()
-        val y = if (d.label == "enemy") {
-            val ar = h / max(w, 1f)
-            when {
-                ar >= 2.0f -> b.top + h * 0.09f   // جسم كامل: الرأس
-                ar >= 1.2f -> b.top + h * 0.17f   // جزء علوي: الرأس/الصدر
-                else -> b.top + h * 0.32f         // جزء ظاهر: الصدر/الوسط
-            }
-        } else b.centerY()
-        return Pair(b.centerX(), y)
+    fun reset() { base = null; onC = 0; offC = 0; pressed = false; dev = 0f }
+
+    fun update(f: Bitmap, cx: Float, cy: Float, r: Float, thr: Float) {
+        val x1 = (cx - r).toInt().coerceIn(0, f.width - 2); val x2 = (cx + r).toInt().coerceIn(x1 + 1, f.width - 1)
+        val y1 = (cy - r).toInt().coerceIn(0, f.height - 2); val y2 = (cy + r).toInt().coerceIn(y1 + 1, f.height - 1)
+        val cur = FloatArray(3); var n = 0
+        for (gy in 0 until 6) for (gx in 0 until 6) {
+            val x = x1 + (x2 - x1) * gx / 5; val y = y1 + (y2 - y1) * gy / 5
+            val p = f.getPixel(x, y)
+            cur[0] += ((p shr 16) and 255) / 255f; cur[1] += ((p shr 8) and 255) / 255f; cur[2] += (p and 255) / 255f; n++
+        }
+        for (i in 0..2) cur[i] /= n.toFloat()
+        val b = base
+        if (b == null) { base = cur; return }
+        dev = (abs(cur[0] - b[0]) + abs(cur[1] - b[1]) + abs(cur[2] - b[2])) / 3f
+        if (dev > thr) { onC++; offC = 0 } else { offC++; onC = 0 }
+        if (!pressed && onC >= 2) pressed = true
+        if (pressed && offC >= 3) pressed = false
+        if (!pressed && dev < thr) for (i in 0..2) b[i] = b[i] * 0.97f + cur[i] * 0.03f
+    }
+}
+
+/**
+ * مساعد التصويب: أنت تتحرك وتضرب بإيدك. يتتبّع المجسم بين الإطارات ويحسب سرعته ويصوّب على مكانه المتوقع
+ * (رأس ← صدر ← أي جزء ظاهر)، ويتجاهل من فوقه رقم 1..4. اختيارياً: يصوّب فقط حين يظهر زر النار مضغوطاً.
+ */
+class AssistBrain(private val cfg: Config, private val sigs: Signatures, private val ocr: AllyOcr) : Agent {
+    private val vehicle = setOf("vehicle", "helicopter", "car", "truck", "bus", "airplane", "motorcycle", "boat")
+    private class Trk(var x: Float, var y: Float, var vx: Float, var vy: Float, var w: Float, var h: Float, var ts: Long, var label: String, var since: Long)
+    private var track: Trk? = null
+    private var learned = false
+    private val watch = FireWatch()
+
+    private fun bodyY(label: String, top: Float, w: Float, h: Float): Float {
+        if (label != "enemy") return top + h * 0.5f
+        val ar = h / max(w, 1f)
+        return when {
+            ar >= 2.0f -> top + h * 0.09f   // جسم كامل: الرأس
+            ar >= 1.2f -> top + h * 0.17f   // جزء علوي: الرأس/الصدر
+            else -> top + h * 0.32f         // جزء ظاهر: الصدر/الوسط
+        }
     }
 
     override fun step(dets: List<Det>, W: Int, H: Int, thumb: IntArray?) {
         Bus.sw = W; Bus.sh = H
-        if (!Bus.assistHold) { Bus.idle(); lockSince = 0L; learned = false; return }
+        if (!Bus.assistHold) { Bus.idle(); track = null; learned = false; return }
         val now = SystemClock.uptimeMillis()
         val frame = Bus.frame
-        val cx = W * cfg.crossX; val cy = H * cfg.crossY
-        if (frame != null) {
-            val firing = fw.update(frame, H, now)
-            if (fw.phase != 0) { Bus.idle(); Bus.status = "مساعد | تعليم زر النار"; return }
-            if (fw.learned && !firing) {
-                Bus.idle(); Bus.fire = false; lockSince = 0L; lastSeen = 0L; learned = false
-                Bus.status = "مساعد | بانتظار ضغط النار"; return
-            }
+        Bus.fire = false; Bus.joyX = 0f; Bus.joyY = 0f   // إنت اللي بتتحرك وبتضرب؛ التطبيق يصوّب فقط
+
+        // مراقبة زر النار
+        if (frame != null) { val fp = Bus.px("fire"); watch.update(frame, fp.x, fp.y, H * 0.045f, cfg.fireThr) }
+        Bus.firePressed = watch.pressed
+        if (cfg.gate && !watch.pressed) {
+            Bus.aimDx = 0f; Bus.aimDy = 0f; track = null
+            Bus.status = "مساعد | بانتظار ضغط النار (فرق ${"%.2f".format(watch.dev)})"
+            return
         }
+
+        val cx = W * cfg.crossX; val cy = H * cfg.crossY
         val live = ArrayList<Det>()
         for (d in dets) {
             if (d.label != "enemy" && d.label !in vehicle) continue
@@ -270,25 +299,60 @@ class AssistBrain(private val cfg: Config, private val sigs: Signatures, private
             }
             live.add(d)
         }
-        val kept = if (lastSeen != 0L && now - lastSeen < 700)
-            live.minByOrNull { hypot(it.cx - lastTx, it.cy - lastTy) }?.takeIf { hypot(it.cx - lastTx, it.cy - lastTy) < W * 0.12f } else null
-        val target = kept ?: live.minByOrNull { hypot(it.cx - cx, it.cy - cy) }
 
-        Bus.fire = false; Bus.joyX = 0f; Bus.joyY = 0f   // إنت اللي بتتحرك وبتضرب؛ التطبيق يصوّب فقط
-        if (target == null) { Bus.aimDx = 0f; Bus.aimDy = 0f; Bus.status = "مساعد | لا هدف"; lockSince = 0L; return }
-        if (kept == null) { lockSince = now; learned = false }
-        lastTx = target.cx; lastTy = target.cy; lastSeen = now; targetBox = target.box
+        // تتبّع: اربط الكشف بالمسار الحالي (بمكانه المتوقع)، وإلا اختر الأقرب للمؤشر
+        var tr = track
+        var target: Det? = null
+        if (tr != null && now - tr.ts < 700) {
+            val dt = (now - tr.ts) / 1000f
+            val px = tr.x + tr.vx * dt; val py = tr.y + tr.vy * dt
+            target = live.minByOrNull { hypot(it.cx - px, it.cy - py) }
+                ?.takeIf { hypot(it.cx - px, it.cy - py) < max(W * 0.15f, it.box.width() * 1.5f) }
+        }
+        if (target != null) {
+            if (tr != null && now - tr.ts < 700) {
+                val dt = ((now - tr.ts) / 1000f).coerceIn(0.03f, 0.5f)
+                tr.vx = tr.vx * 0.6f + ((target.cx - tr.x) / dt) * 0.4f
+                tr.vy = tr.vy * 0.6f + ((target.cy - tr.y) / dt) * 0.4f
+                tr.x = target.cx; tr.y = target.cy; tr.w = target.box.width(); tr.h = target.box.height(); tr.ts = now; tr.label = target.label
+            }
+        } else {
+            val t2 = live.minByOrNull { hypot(it.cx - cx, it.cy - cy) }
+            if (t2 != null) {
+                target = t2
+                tr = Trk(t2.cx, t2.cy, 0f, 0f, t2.box.width(), t2.box.height(), now, t2.label, now)
+                track = tr; learned = false
+            }
+        }
 
-        val (ax, ay) = aimPoint(target)
+        // لو مفيش كشف حالياً: كمّل على المكان المتوقع لحد 0.4 ثانية (يغطي انقطاع الكشف لحظة)
+        var ax: Float; var ay: Float; val lbl: String
+        if (target != null && tr != null) {
+            ax = target.box.centerX(); ay = bodyY(target.label, target.box.top, target.box.width(), target.box.height()); lbl = target.label
+        } else if (tr != null && now - tr.ts < 400) {
+            val dt = (now - tr.ts) / 1000f
+            ax = tr.x + tr.vx * dt; ay = bodyY(tr.label, tr.y - tr.h / 2f, tr.w, tr.h) + tr.vy * dt; lbl = tr.label
+        } else {
+            Bus.aimDx = 0f; Bus.aimDy = 0f; track = null; Bus.status = "مساعد | لا هدف"; return
+        }
+
+        // تصويب مقدَّم: مكان الهدف بعد زمن التأخير
+        val lead = cfg.leadMs / 1000f
+        var leadX = 0f; var leadY = 0f
+        if (tr != null) { leadX = (tr.vx * lead).coerceIn(-W * 0.2f, W * 0.2f); leadY = (tr.vy * lead).coerceIn(-W * 0.12f, W * 0.12f) }
+        ax += leadX; ay += leadY
+
         val ex = ax - cx; val ey = ay - cy
         val gain = max(cfg.aimGain, 0.5f) * 1.3f
         val yMul = if (cfg.invertY) -1f else 1f
         Bus.aimDx = (ex * gain).coerceIn(-W * 0.3f, W * 0.3f)
         Bus.aimDy = (ey * gain * yMul).coerceIn(-W * 0.15f, W * 0.15f)
+
         // التعلّم: ما ضربت عليه أكثر من نصف ثانية بدون رقم = عدو
-        if (!learned && frame != null && target.label == "enemy" && now - lockSince > 500) {
+        if (!learned && frame != null && target != null && target.label == "enemy" && tr != null && now - tr.since > 500) {
             sigs.addEnemy(frame, target.box); learned = true
         }
-        Bus.status = "مساعد | ${target.label} | مكتسب ${sigs.count()}"
+        val spd = if (tr != null) hypot(tr.vx, tr.vy).toInt() else 0
+        Bus.status = "مساعد | $lbl | سرعة $spd | نار:${if (watch.pressed) "مضغوط" else "-"} | ${sigs.count()}"
     }
 }

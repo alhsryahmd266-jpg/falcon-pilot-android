@@ -52,6 +52,22 @@ class Config(private val ctx: Context) {
         get() = p.getBoolean("fire_flat", false)
         set(v) { p.edit().putBoolean("fire_flat", v).apply() }
     fun clearFire() { p.edit().remove("fire_base").remove("fire_pressed").remove("fire_flat").apply() }
+    var gate: Boolean
+        get() = p.getBoolean("gate", false)
+        set(v) { p.edit().putBoolean("gate", v).apply() }
+    var leadMs: Int
+        get() = p.getInt("lead", 180)
+        set(v) { p.edit().putInt("lead", v).apply() }
+    var fireThr: Float
+        get() = p.getFloat("fthr", 0.07f)
+        set(v) { p.edit().putFloat("fthr", v).apply() }
+    /** حماية من الانهيار الأصلي: true = كان فيه تحميل/تشغيل أول للنموذج ولم ينتهِ. */
+    var loading: Boolean
+        get() = p.getBoolean("loading", false)
+        set(v) { p.edit().putBoolean("loading", v).commit() }
+    var crashCount: Int
+        get() = p.getInt("cc", 0)
+        set(v) { p.edit().putInt("cc", v).commit() }
     var useGpu: Boolean
         get() = p.getBoolean("gpu", false)
         set(v) { p.edit().putBoolean("gpu", v).apply() }
