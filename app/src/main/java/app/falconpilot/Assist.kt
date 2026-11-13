@@ -150,11 +150,83 @@ class Signatures(private val file: File) {
     }
 }
 
+
+/** يتعلم شكل زر النار (مرفوع/مضغوط) من الشاشة ثم يكتشف الضغط بدون التقاط اللمس. */
+class FireWatch(private val cfg: Config, private val say: (String) -> Unit) {
+    private fun parse(t: String?): FloatArray? = try { t?.split(",")?.map { it.toFloat() }?.toFloatArray()?.takeIf { it.size == 49 } } catch (_: Throwable) { null }
+    private var base = parse(cfg.fireBase)
+    private var pres = parse(cfg.firePressed)
+    val learned get() = base != null && pres != null
+    val flat get() = cfg.fireFlat
+    var phase = 0; private set
+    private var phaseT = 0L
+    private val acc = FloatArray(49); private var accN = 0
+    private var on = false; private var onN = 0; private var offN = 0
+
+    private fun sig(f: Bitmap, cx: Float, cy: Float, r: Float): FloatArray? {
+        val out = FloatArray(49); var k = 0
+        for (gy in -3..3) for (gx in -3..3) {
+            val x = (cx + gx * r * 1.3f / 3f).toInt(); val y = (cy + gy * r * 1.3f / 3f).toInt()
+            if (x < 0 || y < 0 || x >= f.width || y >= f.height) return null
+            val p = f.getPixel(x, y)
+            out[k++] = (((p shr 16) and 255) + ((p shr 8) and 255) + (p and 255)) / 3f
+        }
+        return out
+    }
+    private fun dist(a: FloatArray, b: FloatArray): Float { var s = 0f; for (i in a.indices) s += abs(a[i] - b[i]); return s / a.size }
+    private fun avg(): FloatArray = FloatArray(49) { acc[it] / max(1, accN) }
+    private fun resetAcc() { for (i in acc.indices) acc[i] = 0f; accN = 0 }
+    private fun add(s: FloatArray) { for (i in s.indices) acc[i] += s[i]; accN++ }
+
+    fun startLearning() {
+        cfg.clearFire(); base = null; pres = null; phase = 1; phaseT = 0L; resetAcc(); on = false
+        say("تعليم زر النار (1/2): ارفع صباعك عن كل الأزرار 3 ثواني")
+    }
+
+    fun update(f: Bitmap, H: Int, now: Long): Boolean {
+        val fp = Bus.px("fire"); val r = 0.075f * H
+        val s = sig(f, fp.x, fp.y, r) ?: return on
+        when (phase) {
+            1 -> {
+                if (phaseT == 0L) phaseT = now
+                val t = now - phaseT
+                if (t > 800) add(s)
+                if (t > 3300 && accN > 0) { base = avg(); resetAcc(); phase = 2; phaseT = 0L; say("تعليم زر النار (2/2): دوس على زر النار وسيبه مضغوط 5 ثواني") }
+                return false
+            }
+            2 -> {
+                if (phaseT == 0L) phaseT = now
+                val t = now - phaseT
+                if (t in 1500..5500) add(s)
+                if (t > 5500 && accN > 0) {
+                    val p = avg(); val b = base!!
+                    phase = 0
+                    if (dist(b, p) < 4f) {
+                        base = null; pres = null; cfg.fireFlat = true
+                        say("زر النار ما بيتغيّر شكله لما تدوسه (أو الموقع غلط)، فالمساعد هيصوّب دايماً طول ما فيه مجسم")
+                    } else {
+                        pres = p; cfg.fireFlat = false
+                        cfg.fireBase = b.joinToString(","); cfg.firePressed = p.joinToString(",")
+                        say("اتعلّمت شكل زر النار ✅ المساعد هيصوّب وانت دايس نار بس")
+                    }
+                }
+                return false
+            }
+        }
+        val b = base; val p = pres
+        if (b == null || p == null) return false
+        val pressed = dist(s, p) < dist(s, b) * 0.8f
+        if (pressed) { onN++; offN = 0; if (onN >= 2) on = true } else { offN++; onN = 0; if (offN >= 4) on = false }
+        return on
+    }
+}
+
 /**
  * مساعد الضرب: أنت تتحرك بإيدك. أول ما تضغط على زر النار (الطبقة الشفافة) يصوّب تلقائياً
  * (رأس ← صدر ← أي جزء ظاهر) على أي مجسم بشري أو عربية/طائرة، ويتجاهل من فوقه رقم 1..4.
  */
-class AssistBrain(private val cfg: Config, private val sigs: Signatures, private val ocr: AllyOcr) : Agent {
+class AssistBrain(private val cfg: Config, private val sigs: Signatures, private val ocr: AllyOcr, say: (String) -> Unit) : Agent {
+    val fw = FireWatch(cfg, say)
     private val vehicle = setOf("vehicle", "helicopter", "car", "truck", "bus", "airplane", "motorcycle", "boat")
     private var lastTx = 0f; private var lastTy = 0f; private var lastSeen = 0L
     private var lockSince = 0L; private var learned = false
@@ -179,6 +251,14 @@ class AssistBrain(private val cfg: Config, private val sigs: Signatures, private
         val now = SystemClock.uptimeMillis()
         val frame = Bus.frame
         val cx = W * cfg.crossX; val cy = H * cfg.crossY
+        if (frame != null) {
+            val firing = fw.update(frame, H, now)
+            if (fw.phase != 0) { Bus.idle(); Bus.status = "مساعد | تعليم زر النار"; return }
+            if (fw.learned && !firing) {
+                Bus.idle(); Bus.fire = false; lockSince = 0L; lastSeen = 0L; learned = false
+                Bus.status = "مساعد | بانتظار ضغط النار"; return
+            }
+        }
         val live = ArrayList<Det>()
         for (d in dets) {
             if (d.label != "enemy" && d.label !in vehicle) continue
@@ -190,7 +270,7 @@ class AssistBrain(private val cfg: Config, private val sigs: Signatures, private
             }
             live.add(d)
         }
-        val kept = if (lastSeen != 0L && now - lastSeen < 400)
+        val kept = if (lastSeen != 0L && now - lastSeen < 700)
             live.minByOrNull { hypot(it.cx - lastTx, it.cy - lastTy) }?.takeIf { hypot(it.cx - lastTx, it.cy - lastTy) < W * 0.12f } else null
         val target = kept ?: live.minByOrNull { hypot(it.cx - cx, it.cy - cy) }
 

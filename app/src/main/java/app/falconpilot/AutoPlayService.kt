@@ -223,7 +223,9 @@ class AutoPlayService : Service() {
             val o = AllyOcr(); val sg = Signatures(java.io.File(filesDir, "sigs.txt"))
             ocr = o; sigs = sg
             savedBrain = brain
-            brain = AssistBrain(cfg, sg, o)
+            val ab = AssistBrain(cfg, sg, o) { m -> main.post { toast(m) } }
+            brain = ab
+            if (!cfg.fireFlat && !ab.fw.learned) ab.fw.startLearning()
             Bus.active = true; g.startPump()
             assistOn = true
             Bus.assistHold = true

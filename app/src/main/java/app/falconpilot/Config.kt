@@ -42,6 +42,16 @@ class Config(private val ctx: Context) {
         get() = p.getFloat("crossY", 0.5f)
         set(v) { p.edit().putFloat("crossY", v).apply() }
 
+    var fireBase: String?
+        get() = p.getString("fire_base", null)
+        set(v) { p.edit().putString("fire_base", v).apply() }
+    var firePressed: String?
+        get() = p.getString("fire_pressed", null)
+        set(v) { p.edit().putString("fire_pressed", v).apply() }
+    var fireFlat: Boolean   // الزر لا يتغير شكله عند الضغط
+        get() = p.getBoolean("fire_flat", false)
+        set(v) { p.edit().putBoolean("fire_flat", v).apply() }
+    fun clearFire() { p.edit().remove("fire_base").remove("fire_pressed").remove("fire_flat").apply() }
     var useGpu: Boolean
         get() = p.getBoolean("gpu", false)
         set(v) { p.edit().putBoolean("gpu", v).apply() }
