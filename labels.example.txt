@@ -1,0 +1,15 @@
+enemy
+ally
+medkit
+ammo
+weapon
+safe_zone
+danger_zone
+low_health
+joystick
+btn_fire
+btn_jump
+btn_reload
+btn_crouch
+btn_heal
+ui_tap

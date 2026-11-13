@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Falcon Pilot</string>
+    <string name="a11y_desc">يسمح للتطبيق بتنفيذ اللمس والسحب على الشاشة لتشغيل اللعبة تلقائياً.</string>
+</resources>
