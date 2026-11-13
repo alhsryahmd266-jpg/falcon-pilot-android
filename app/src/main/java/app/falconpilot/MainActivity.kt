@@ -77,11 +77,13 @@ class MainActivity : Activity() {
             setPadding(0, dp(10), 0, dp(10))
         }
         col.addView(sw("استخدام نموذج السياسة إن وُجد", cfg.usePolicy) { cfg.usePolicy = it })
+        col.addView(sw("تسريع GPU (تجريبي، لو التطبيق بيقفل خليه مقفول)", cfg.useGpu) { cfg.useGpu = it })
         col.addView(sw("عكس اتجاه التصويب العمودي", cfg.invertY) { cfg.invertY = it })
         col.addView(sw("عرض مربعات الاكتشاف (تشخيص)", cfg.debug) { cfg.debug = it })
         col.addView(text("🎯 معايرة الأزرار: شغّل التطبيق ثم ادخل مباراة (تدريب) واضغط الزر البنفسجي 🎯 فوق اللعبة ← «مسح تلقائي» ← عدّل العلامات ← حفظ.", 13f, 0xFFFFD54F.toInt()))
-        col.addView(text("🔫 مساعد الضرب: بعد المعايرة اضغط الزر الأخضر 🔫 فتظهر دائرة خضراء فوق زر النار. اتحرك بإيدك، ولما تضغط على الدائرة يصوّب تلقائياً (رأس ثم صدر ثم أي جزء) ويضرب أي مجسم بشري أو عربية أو طائرة، ويتجاهل من فوقه رقم 1 إلى 4. بيتعلم من اللي بتضرب عليه.", 13f, 0xFF80CBC4.toInt()))
+        col.addView(text("🔫 مساعد الضرب: اضغط الزر الأخضر 🔫 (أول مرة بيكتشف الأزرار تلقائياً 6 ثوانٍ، سيبه داخل المباراة). اتحرك واضرب نار بإيدك، والتطبيق يصوّب تلقائياً (رأس ثم صدر ثم أي جزء) على أي مجسم بشري أو عربية أو طائرة، ويتجاهل من فوقه رقم 1 إلى 4. بيتعلم من اللي بتضرب عليه.", 13f, 0xFF80CBC4.toInt()))
         col.addView(button("إعادة ضبط المعايرة", 0xFF6D4C41.toInt()) { cfg.resetLayout(); toast("تمت الإعادة"); refresh() })
+        col.addView(button("مسح سجل الأعطال", 0xFF455A64.toInt()) { Trace.clear(this); refresh() })
         col.addView(button("▶  تشغيل (يظهر الزر العائم)", 0xFF2E7D32.toInt()) { start() })
         col.addView(text("داخل اللعبة: اضغط الزر العائم للتشغيل/الإيقاف، اسحبه لتحريكه، ضغطة مطوّلة لإغلاق التطبيق.", 12f, 0xFF90A4AE.toInt()))
         setContentView(root)
@@ -98,7 +100,7 @@ class MainActivity : Activity() {
             "${if (cfg.calibrated) "✅" else "⚠️"} معايرة الأزرار\n" +
             "${if (cfg.policyFile.exists()) "🧠" else "➖"} نموذج السياسة\n" +
             "${if (md) "✅" else "❌"} النموذج ${if (cfg.usingBundled) "(YOLO11 مدمج: person=عدو)" else if (md) "(مستورد ${cfg.modelFile.length() / 1024} KB)" else ""}\n" +
-            "فئات: ${cfg.labels().joinToString(",")}"
+            "فئات: ${cfg.labels().take(6).joinToString(",")}…\n" + Trace.read(this)
     }
 
     private fun pick(code: Int) {

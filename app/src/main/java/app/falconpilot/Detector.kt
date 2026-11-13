@@ -35,10 +35,12 @@ class Detector(private val cfg: Config) {
     private var out: Array<Array<FloatArray>>? = null
 
     fun load(): Boolean {
-        if (cfg.activeModel() == null) { info = "لا يوجد نموذج"; return false }
-        labels = cfg.labels()
-        try { build(true) } catch (e: Throwable) {
-            Log.w(TAG, "GPU failed: $e")
+        try {
+            if (cfg.activeModel() == null) { info = "لا يوجد نموذج"; return false }
+            labels = cfg.labels()
+        } catch (e: Throwable) { info = "تعذّر تجهيز النموذج: ${e.message}"; return false }
+        try { build(cfg.useGpu) } catch (e: Throwable) {
+            Log.w(TAG, "first load failed: $e")
             try { build(false) } catch (e2: Throwable) { info = "فشل تحميل النموذج: ${e2.message}"; return false }
         }
         return ready

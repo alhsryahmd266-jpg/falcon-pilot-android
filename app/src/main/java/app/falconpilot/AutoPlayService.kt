@@ -60,6 +60,7 @@ class AutoPlayService : Service() {
     private var calibView: CalibView? = null
     private var calBtn: TextView? = null
     private var assistOn = false
+    private var autoCal = false
     private var assistBtn: TextView? = null
     private var assistBgd: GradientDrawable? = null
     private var catcher: View? = null
@@ -91,9 +92,13 @@ class AutoPlayService : Service() {
         Bus.human = cfg.human
         for ((k, v) in cfg.loadLayout()) Bus.pos[k]?.let { it.x = v.first; it.y = v.second }
         if (cfg.calibrated) Bus.joyR = cfg.joyRf * Bus.sh
+        Trace.log(this, "خدمة بدأت")
         bg.post {
+          try {
+            Trace.log(this, "تحميل النموذج…")
             val d = Detector(cfg)
             val ok = d.load()
+            Trace.log(this, if (ok) "النموذج جاهز ${d.info}" else "فشل النموذج ${d.info}")
             det = d
             if (cfg.usePolicy && cfg.policyFile.exists()) {
                 val pol = Policy(cfg)
@@ -101,6 +106,7 @@ class AutoPlayService : Service() {
                 else main.post { toast("السياسة: ${pol.info} — سيُستخدم العقل الافتراضي") }
             }
             main.post { toast(if (ok) "النموذج جاهز: ${d.info}" else "تعذّر تحميل النموذج: ${d.info}") }
+          } catch (e: Throwable) { Trace.log(this, "خطأ تحميل: $e"); main.post { toast("خطأ أثناء تحميل النموذج: $e") } }
         }
         setupCapture()
         addButton()
@@ -213,16 +219,17 @@ class AutoPlayService : Service() {
         if (calib != null) { toast("أغلق المعايرة أولاً"); return }
         if (!assistOn) {
             if (Bus.active) { toast("أوقف اللعب الآلي ▶ أولاً"); return }
-            if (!cfg.calibrated) toast("⚠ ما اتعايرتش الأزرار: اضغط 🎯 ثم مسح تلقائي ثم حفظ ليتعرف على مكان زر النار")
+            if (!cfg.calibrated) { autoCal = true; startScan(); return }
             val o = AllyOcr(); val sg = Signatures(java.io.File(filesDir, "sigs.txt"))
             ocr = o; sigs = sg
             savedBrain = brain
             brain = AssistBrain(cfg, sg, o)
             Bus.active = true; g.startPump()
             assistOn = true
-            showCatcher()
+            Bus.assistHold = true
+            Trace.log(this, "المساعد شغّال")
             assistBgd?.setColor(0xCCE53935.toInt()); assistBtn?.text = "⏹"
-            toast("المساعد شغّال: اضغط على الدائرة الخضراء (مكان زر النار) فيصوّب ويضرب تلقائياً")
+            toast("المساعد شغّال: اضرب نار بإيدك وهو يصوّب تلقائياً على أقرب مجسم بشري")
         } else {
             hideCatcher()
             Bus.assistHold = false; Bus.active = false; g.stopPump(); Bus.dets = emptyList()
@@ -371,6 +378,18 @@ class AutoPlayService : Service() {
         main.removeCallbacks(scanDrive)
         GestureService.instance?.stopPump(); Bus.idle()
         calib?.visibility = View.VISIBLE; btn?.visibility = View.VISIBLE; calBtn?.visibility = View.VISIBLE
+        if (autoCal) {
+            autoCal = false
+            val m = LinkedHashMap<String, PointF>()
+            for (k in listOf("joy", "fire", "jump", "reload", "crouch", "heal", "aim")) m[k] = res.pts[k] ?: Bus.px(k)
+            cfg.saveLayout(m, Bus.sw, Bus.sh)
+            if (res.joyR > 0) cfg.joyRf = res.joyR / Bus.sh
+            for ((k, p) in m) Bus.pos[k]?.let { it.x = p.x / Bus.sw; it.y = p.y / Bus.sh }
+            if (res.joyR > 0) Bus.joyR = res.joyR
+            toast(if (res.found == 0 || !res.motionOk) "ما لقيتش أزرار بوضوح (ادخل مباراة وأعد التشغيل). هكمل بأماكن افتراضية." else "اكتشفت ${res.pts.size} زر تلقائياً ✅")
+            toggleAssist()
+            return
+        }
         val cv = calibView ?: return
         for ((k, p) in res.pts) cv.pts[k]?.set(p.x, p.y)
         if (res.joyR > 0) cv.joyR = res.joyR

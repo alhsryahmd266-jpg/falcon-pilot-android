@@ -194,7 +194,7 @@ class AssistBrain(private val cfg: Config, private val sigs: Signatures, private
             live.minByOrNull { hypot(it.cx - lastTx, it.cy - lastTy) }?.takeIf { hypot(it.cx - lastTx, it.cy - lastTy) < W * 0.12f } else null
         val target = kept ?: live.minByOrNull { hypot(it.cx - cx, it.cy - cy) }
 
-        Bus.fire = true   // الضغط على زر النار = نار دائماً؛ التصويب تلقائي
+        Bus.fire = false; Bus.joyX = 0f; Bus.joyY = 0f   // إنت اللي بتتحرك وبتضرب؛ التطبيق يصوّب فقط
         if (target == null) { Bus.aimDx = 0f; Bus.aimDy = 0f; Bus.status = "مساعد | لا هدف"; lockSince = 0L; return }
         if (kept == null) { lockSince = now; learned = false }
         lastTx = target.cx; lastTy = target.cy; lastSeen = now; targetBox = target.box

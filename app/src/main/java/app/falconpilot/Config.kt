@@ -42,6 +42,9 @@ class Config(private val ctx: Context) {
         get() = p.getFloat("crossY", 0.5f)
         set(v) { p.edit().putFloat("crossY", v).apply() }
 
+    var useGpu: Boolean
+        get() = p.getBoolean("gpu", false)
+        set(v) { p.edit().putBoolean("gpu", v).apply() }
     var usePolicy: Boolean
         get() = p.getBoolean("usePolicy", true)
         set(v) { p.edit().putBoolean("usePolicy", v).apply() }
