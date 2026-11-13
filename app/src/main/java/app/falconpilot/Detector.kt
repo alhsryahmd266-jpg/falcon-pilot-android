@@ -40,7 +40,7 @@ class Detector(private val cfg: Config) {
             if (cfg.activeModel() == null) { info = "لا يوجد نموذج"; return false }
             labels = cfg.labels()
         } catch (e: Throwable) { info = "تعذّر تجهيز النموذج: ${e.message}"; return false }
-        try { build(cfg.useGpu) } catch (e: Throwable) {
+        try { build(cfg.useGpu && cfg.crashCount == 0) } catch (e: Throwable) {
             Log.w(TAG, "first load failed: $e")
             try { build(false) } catch (e2: Throwable) { info = "فشل تحميل النموذج: ${e2.message}"; return false }
         }

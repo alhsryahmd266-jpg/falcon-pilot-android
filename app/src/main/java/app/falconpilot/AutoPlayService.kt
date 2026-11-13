@@ -104,7 +104,7 @@ class AutoPlayService : Service() {
         Trace.log(this, "خدمة بدأت")
         bg.post {
           try {
-            if (cfg.loading) { cfg.crashCount = cfg.crashCount + 1; Trace.log(this, "المحاولة السابقة انهارت (${cfg.crashCount}) → وضع آمن") }
+            if (cfg.loading) { cfg.crashCount = cfg.crashCount + 1; cfg.useGpu = false; Trace.log(this, "المحاولة السابقة انهارت (${cfg.crashCount}) → وضع آمن، تم قفل GPU") }
             cfg.loading = true
             Trace.log(this, "تحميل النموذج…")
             val d = Detector(cfg)
