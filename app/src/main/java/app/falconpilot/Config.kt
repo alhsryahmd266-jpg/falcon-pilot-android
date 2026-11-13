@@ -56,7 +56,7 @@ class Config(private val ctx: Context) {
 
     fun labels(): List<String> {
         if (labelsFile.exists()) {
-            val l = labelsFile.readLines().map { it.trim() }.filter { it.isNotEmpty() }
+            val l = labelsFile.readLines().map { it.trim() }.filter { it.isNotEmpty() }.map { Roles.norm(it) }
             if (l.isNotEmpty()) return l
         }
         return DEFAULT_LABELS

@@ -30,6 +30,9 @@ class Brain(private val cfg: Config) : Agent {
     private var unstickUntil = 0L
     private var wantedMove = false
     private var hadTarget = false
+    private var lastTx = 0f
+    private var lastTy = 0f
+    private var lastSeen = 0L
     private var seenAt = 0L
     private var reactMs = 0L
     private var burstEnd = 0L
@@ -89,7 +92,12 @@ class Brain(private val cfg: Config) : Agent {
         val yMul = if (cfg.invertY) -1f else 1f
         val enemies = dets.filter { it.label == "enemy" }
         val lowHp = dets.any { it.label == "low_health" }
-        val target = enemies.minByOrNull { hypot(it.cx - cx, it.cy - cy) - it.box.height() * 0.5f }
+        val nearest = enemies.minByOrNull { hypot(it.cx - cx, it.cy - cy) - it.box.height() * 0.5f }
+        // تثبيت الهدف: لا نبدّل لهدف آخر ما دام السابق ظاهراً
+        val kept = if (lastSeen != 0L && now - lastSeen < 500)
+            enemies.minByOrNull { hypot(it.cx - lastTx, it.cy - lastTy) }?.takeIf { hypot(it.cx - lastTx, it.cy - lastTy) < W * 0.15f } else null
+        val target = kept ?: nearest
+        if (target != null) { lastTx = target.cx; lastTy = target.cy; lastSeen = now }
 
         var jx = 0f; var jy = 0f; var fire = false; var dx = 0f; var dy = 0f
         var mode: String
@@ -135,9 +143,11 @@ class Brain(private val cfg: Config) : Agent {
                 it.label == "medkit" || (!lowHp && (it.label == "ammo" || it.label == "weapon"))
             }.minByOrNull { hypot(it.cx - cx, it.cy - cy) }
 
+            val searching = lastSeen != 0L && now - lastSeen < 2500
             var gx: Float? = null
             var close = false
             when {
+                searching -> { gx = lastTx; mode = "بحث" }
                 danger != null && safe == null -> { gx = 2 * cx - danger.cx; mode = "هروب من الزون" }
                 safe != null -> { gx = safe.cx; mode = "نحو الزون" }
                 loot != null -> { gx = loot.cx; close = loot.box.height() > 0.3f * H; mode = "جمع" }
@@ -146,6 +156,7 @@ class Brain(private val cfg: Config) : Agent {
                 val ex = gx - cx
                 dx = (ex * gain * 0.8f).coerceIn(-W * 0.2f, W * 0.2f)
                 jy = if (close) 0.3f else if (abs(ex) < W * 0.25f) 1f else 0.4f
+                if (mode == "بحث") jy = 0.2f
             } else {
                 jy = 1f
                 if (now > nextYaw) { yawDir = -yawDir; nextYaw = now + Random.nextLong(1500, 3500) }
