@@ -91,12 +91,12 @@ class MainActivity : Activity() {
     private fun refresh() {
         val ov = Settings.canDrawOverlays(this)
         val ac = GestureService.instance != null
-        val md = cfg.modelFile.exists()
+        val md = cfg.hasModel
         status.text = "${if (ov) "✅" else "❌"} العرض فوق التطبيقات\n" +
             "${if (ac) "✅" else "❌"} خدمة التحكم\n" +
             "${if (cfg.calibrated) "✅" else "⚠️"} معايرة الأزرار\n" +
             "${if (cfg.policyFile.exists()) "🧠" else "➖"} نموذج السياسة\n" +
-            "${if (md) "✅" else "❌"} النموذج ${if (md) "(${cfg.modelFile.length() / 1024} KB)" else ""}\n" +
+            "${if (md) "✅" else "❌"} النموذج ${if (cfg.usingBundled) "(YOLO11 مدمج: person=عدو)" else if (md) "(مستورد ${cfg.modelFile.length() / 1024} KB)" else ""}\n" +
             "فئات: ${cfg.labels().joinToString(",")}"
     }
 
@@ -108,7 +108,7 @@ class MainActivity : Activity() {
     private fun start() {
         if (!Settings.canDrawOverlays(this)) { toast("امنح إذن العرض فوق التطبيقات"); return }
         if (GestureService.instance == null) { toast("فعّل خدمة التحكم من إعدادات الوصول"); return }
-        if (!cfg.modelFile.exists()) { toast("استورد النموذج أولاً"); return }
+        if (!cfg.hasModel) { toast("لا يوجد نموذج"); return }
         val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         startActivityForResult(mpm.createScreenCaptureIntent(), 21)
     }

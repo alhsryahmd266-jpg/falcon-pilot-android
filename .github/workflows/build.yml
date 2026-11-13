@@ -12,6 +12,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Export YOLO11n to TFLite (bundled model)
+        run: |
+          pip install -q ultralytics
+          pip install -q "tensorflow-cpu<2.20" tf_keras onnx onnx2tf onnxslim onnxruntime sng4onnx psutil ai-edge-litert
+          pip install -q onnx_graphsurgeon --extra-index-url https://pypi.ngc.nvidia.com || true
+          curl -fsSL -o yolo11n.pt https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt
+          yolo export model=yolo11n.pt format=tflite imgsz=640 half=False
+          mkdir -p app/src/main/assets
+          cp yolo11n_saved_model/yolo11n_float32.tflite app/src/main/assets/yolo_default.tflite
+          ls -la app/src/main/assets
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.7" }
       - name: Restore keystore

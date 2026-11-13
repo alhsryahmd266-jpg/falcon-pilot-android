@@ -35,7 +35,7 @@ class Detector(private val cfg: Config) {
     private var out: Array<Array<FloatArray>>? = null
 
     fun load(): Boolean {
-        if (!cfg.modelFile.exists()) { info = "لا يوجد نموذج"; return false }
+        if (cfg.activeModel() == null) { info = "لا يوجد نموذج"; return false }
         labels = cfg.labels()
         try { build(true) } catch (e: Throwable) {
             Log.w(TAG, "GPU failed: $e")
@@ -48,7 +48,7 @@ class Detector(private val cfg: Config) {
         close()
         val o = Interpreter.Options()
         if (useGpu) { gpu = GpuDelegate(); o.addDelegate(gpu) } else o.setNumThreads(4)
-        val t = Interpreter(cfg.modelFile, o)
+        val t = Interpreter(cfg.activeModel()!!, o)
         val ins = t.getInputTensor(0)
         val s = ins.shape()
         inH = s[1]; inW = s[2]

@@ -8,6 +8,20 @@ class Config(private val ctx: Context) {
     val modelFile get() = File(ctx.filesDir, "model.tflite")
     val policyFile get() = File(ctx.filesDir, "policy.tflite")
     val labelsFile get() = File(ctx.filesDir, "labels.txt")
+    val bundledFile get() = File(ctx.filesDir, "bundled_yolo.tflite")
+    /** هل يوجد نموذج جاهز (مستورد أو مدمج داخل التطبيق)؟ */
+    val hasModel: Boolean get() = modelFile.exists() || hasBundled
+    val hasBundled: Boolean get() = try { ctx.assets.open("yolo_default.tflite").close(); true } catch (_: Throwable) { false }
+    val usingBundled: Boolean get() = !modelFile.exists() && hasBundled
+    /** يجهّز الملف المدمج (ينسخه من assets مرة واحدة) ويعيد النموذج الفعّال. */
+    fun activeModel(): File? {
+        if (modelFile.exists()) return modelFile
+        if (!hasBundled) return null
+        val sz = ctx.assets.openFd("yolo_default.tflite").use { it.length }
+        if (!bundledFile.exists() || bundledFile.length() != sz)
+            ctx.assets.open("yolo_default.tflite").use { i -> bundledFile.outputStream().use { o -> i.copyTo(o) } }
+        return bundledFile
+    }
 
     var conf: Float
         get() = p.getFloat("conf", 0.40f)
@@ -55,6 +69,7 @@ class Config(private val ctx: Context) {
     fun resetLayout() { p.edit().remove("layout").apply() }
 
     fun labels(): List<String> {
+        if (usingBundled) return COCO_LABELS
         if (labelsFile.exists()) {
             val l = labelsFile.readLines().map { it.trim() }.filter { it.isNotEmpty() }.map { Roles.norm(it) }
             if (l.isNotEmpty()) return l
@@ -63,6 +78,8 @@ class Config(private val ctx: Context) {
     }
 
     companion object {
+        /** نموذج COCO الافتراضي: "person" يُعامل كعدو. استورد نموذجك الخاص ليتعرف على أعداء لعبتك. */
+        val COCO_LABELS = listOf("enemy","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush")
         val DEFAULT_LABELS = listOf(
             "enemy", "ally", "medkit", "ammo", "weapon", "safe_zone", "danger_zone", "low_health",
             "joystick", "btn_fire", "btn_jump", "btn_reload", "btn_crouch", "btn_heal", "ui_tap"
