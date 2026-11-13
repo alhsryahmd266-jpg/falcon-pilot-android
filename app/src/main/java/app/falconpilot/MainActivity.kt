@@ -77,7 +77,6 @@ class MainActivity : Activity() {
             setPadding(0, dp(10), 0, dp(10))
         }
         col.addView(sw("استخدام نموذج السياسة إن وُجد", cfg.usePolicy) { cfg.usePolicy = it })
-        col.addView(sw("تصويب فقط عند ضغط زر النار (يراقب شكل الزر؛ تجريبي، لو مفيش تصويب سيبه مقفول)", cfg.gate) { cfg.gate = it })
         col.addView(sw("تسريع GPU (تجريبي، لو التطبيق بيقفل خليه مقفول)", cfg.useGpu) { cfg.useGpu = it })
         col.addView(sw("عكس اتجاه التصويب العمودي", cfg.invertY) { cfg.invertY = it })
         col.addView(sw("عرض مربعات الاكتشاف (تشخيص)", cfg.debug) { cfg.debug = it })
