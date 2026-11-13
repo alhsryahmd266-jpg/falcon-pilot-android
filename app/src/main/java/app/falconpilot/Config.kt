@@ -69,8 +69,8 @@ class Config(private val ctx: Context) {
         get() = p.getInt("cc", 0)
         set(v) { p.edit().putInt("cc", v).commit() }
     var useGpu: Boolean
-        get() = p.getBoolean("gpu", false)
-        set(v) { p.edit().putBoolean("gpu", v).apply() }
+        get() = p.getBoolean("gpu2", false)
+        set(v) { p.edit().putBoolean("gpu2", v).apply() }
     var usePolicy: Boolean
         get() = p.getBoolean("usePolicy", true)
         set(v) { p.edit().putBoolean("usePolicy", v).apply() }
