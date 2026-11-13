@@ -65,11 +65,13 @@ class GestureService : AccessibilityService() {
     private fun pump() {
         if (!running) return
         val w = Bus.sw.toFloat(); val hgt = Bus.sh.toFloat()
-        val d = Bus.tickMs
+        val hu = Bus.human
+        val d = Bus.tickMs + (Math.random() * 30 * hu).toLong()
         val gb = GestureDescription.Builder()
         var n = 0
         try {
-            val jx = Bus.joyX; val jy = Bus.joyY
+            val jx = if (Bus.joyX != 0f) Bus.joyX + ((Math.random() - 0.5) * 0.08 * hu).toFloat() else 0f
+            val jy = if (Bus.joyY != 0f) Bus.joyY + ((Math.random() - 0.5) * 0.08 * hu).toFloat() else 0f
             val jc = Bus.px("joy"); val r = Bus.joyR
             val jOn = jx != 0f || jy != 0f
             hold(joy, jc.x, jc.y, (jc.x + jx * r).coerceIn(1f, w - 1), (jc.y - jy * r).coerceIn(1f, hgt - 1), jOn, d)?.let { gb.addStroke(it); n++ }
@@ -89,8 +91,9 @@ class GestureService : AccessibilityService() {
             var t = 0
             while (t < 3) {
                 val tp = Bus.taps.poll() ?: break
-                val p = Path(); p.moveTo(tp.x, tp.y)
-                gb.addStroke(StrokeDescription(p, 0, 45, false)); n++; t++
+                val p = Path()
+                p.moveTo(tp.x + ((Math.random() - 0.5) * 10 * hu).toFloat(), tp.y + ((Math.random() - 0.5) * 10 * hu).toFloat())
+                gb.addStroke(StrokeDescription(p, 0, 40 + (Math.random() * 50 * hu).toLong(), false)); n++; t++
             }
         } catch (e: Throwable) { n = 0 }
 

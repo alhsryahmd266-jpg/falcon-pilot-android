@@ -27,6 +27,29 @@ class Config(private val ctx: Context) {
         get() = p.getFloat("crossY", 0.5f)
         set(v) { p.edit().putFloat("crossY", v).apply() }
 
+    var human: Float
+        get() = p.getFloat("human", 0.6f)
+        set(v) { p.edit().putFloat("human", v).apply() }
+    var joyRf: Float
+        get() = p.getFloat("joyRf", 0.09f)
+        set(v) { p.edit().putFloat("joyRf", v).apply() }
+    val calibrated: Boolean get() = p.contains("layout")
+
+    fun saveLayout(m: Map<String, android.graphics.PointF>, w: Int, h: Int) {
+        p.edit().putString("layout", m.entries.joinToString(";") { "${it.key}:${it.value.x / w},${it.value.y / h}" }).apply()
+    }
+    fun loadLayout(): Map<String, Pair<Float, Float>> {
+        val r = HashMap<String, Pair<Float, Float>>()
+        val s = p.getString("layout", null) ?: return r
+        for (e in s.split(";")) {
+            val kv = e.split(":"); if (kv.size != 2) continue
+            val xy = kv[1].split(","); if (xy.size != 2) continue
+            r[kv[0]] = Pair(xy[0].toFloat(), xy[1].toFloat())
+        }
+        return r
+    }
+    fun resetLayout() { p.edit().remove("layout").apply() }
+
     fun labels(): List<String> {
         if (labelsFile.exists()) {
             val l = labelsFile.readLines().map { it.trim() }.filter { it.isNotEmpty() }

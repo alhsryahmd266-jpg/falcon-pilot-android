@@ -67,6 +67,7 @@ class MainActivity : Activity() {
             col.addView(t); col.addView(s)
         }
         slider("حساسية التصويب %", 10, 200, (cfg.aimGain * 100).toInt()) { cfg.aimGain = it / 100f }
+        slider("مستوى المحاكاة البشرية %", 0, 100, (cfg.human * 100).toInt()) { cfg.human = it / 100f }
         slider("حد الثقة %", 10, 90, (cfg.conf * 100).toInt()) { cfg.conf = it / 100f }
         slider("موضع المؤشر X %", 30, 70, (cfg.crossX * 100).toInt()) { cfg.crossX = it / 100f }
         slider("موضع المؤشر Y %", 30, 70, (cfg.crossY * 100).toInt()) { cfg.crossY = it / 100f }
@@ -76,6 +77,8 @@ class MainActivity : Activity() {
         }
         col.addView(sw("عكس اتجاه التصويب العمودي", cfg.invertY) { cfg.invertY = it })
         col.addView(sw("عرض مربعات الاكتشاف (تشخيص)", cfg.debug) { cfg.debug = it })
+        col.addView(text("🎯 معايرة الأزرار: شغّل التطبيق ثم ادخل مباراة (تدريب) واضغط الزر البنفسجي 🎯 فوق اللعبة ← «مسح تلقائي» ← عدّل العلامات ← حفظ.", 13f, 0xFFFFD54F.toInt()))
+        col.addView(button("إعادة ضبط المعايرة", 0xFF6D4C41.toInt()) { cfg.resetLayout(); toast("تمت الإعادة"); refresh() })
         col.addView(button("▶  تشغيل (يظهر الزر العائم)", 0xFF2E7D32.toInt()) { start() })
         col.addView(text("داخل اللعبة: اضغط الزر العائم للتشغيل/الإيقاف، اسحبه لتحريكه، ضغطة مطوّلة لإغلاق التطبيق.", 12f, 0xFF90A4AE.toInt()))
         setContentView(root)
@@ -89,6 +92,7 @@ class MainActivity : Activity() {
         val md = cfg.modelFile.exists()
         status.text = "${if (ov) "✅" else "❌"} العرض فوق التطبيقات\n" +
             "${if (ac) "✅" else "❌"} خدمة التحكم\n" +
+            "${if (cfg.calibrated) "✅" else "⚠️"} معايرة الأزرار\n" +
             "${if (md) "✅" else "❌"} النموذج ${if (md) "(${cfg.modelFile.length() / 1024} KB)" else ""}\n" +
             "فئات: ${cfg.labels().joinToString(",")}"
     }

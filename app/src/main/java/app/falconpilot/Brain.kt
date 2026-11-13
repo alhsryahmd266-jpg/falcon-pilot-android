@@ -29,6 +29,11 @@ class Brain(private val cfg: Config) {
     private var stillSince = 0L
     private var unstickUntil = 0L
     private var wantedMove = false
+    private var hadTarget = false
+    private var seenAt = 0L
+    private var reactMs = 0L
+    private var burstEnd = 0L
+    private var pauseEnd = 0L
 
     private val ctrl = mapOf(
         "joystick" to "joy", "btn_fire" to "fire", "btn_jump" to "jump",
@@ -44,14 +49,17 @@ class Brain(private val cfg: Config) {
         Bus.sw = W; Bus.sh = H
 
         // 1) تعلّم أماكن الأزرار تلقائياً من النموذج
-        for (d in dets) {
+        val hu = cfg.human
+        Bus.human = hu
+        if (cfg.calibrated) Bus.joyR = cfg.joyRf * H
+        else for (d in dets) {
             val k = ctrl[d.label] ?: continue
             val p = Bus.pos[k]!!
             p.x = p.x * 0.8f + (d.cx / W) * 0.2f
             p.y = p.y * 0.8f + (d.cy / H) * 0.2f
             if (k == "joy") Bus.joyR = max(40f, d.box.width() * 0.45f)
         }
-        if (Bus.joyR < 40f || Bus.joyR > 0.3f * H) Bus.joyR = 0.09f * H
+        if (!cfg.calibrated && (Bus.joyR < 40f || Bus.joyR > 0.3f * H)) Bus.joyR = 0.09f * H
 
         // 2) أزرار القوائم (ready / respawn / continue ...)
         val ui = dets.filter { it.label.startsWith("ui_tap") }.maxByOrNull { it.conf }
@@ -90,12 +98,21 @@ class Brain(private val cfg: Config) {
             mode = "قتال"
             val ax = target.cx
             val ay = target.box.top + target.box.height() * 0.22f
-            val ex = ax - cx; val ey = ay - cy
+            if (!hadTarget) { seenAt = now; reactMs = ((120 + Random.nextFloat() * 220) * hu).toLong() }
+            val noise = (Random.nextFloat() - 0.5f) * 2f * target.box.width() * 0.12f * hu
+            val ex = ax - cx + noise; val ey = ay - cy
             val maxStep = W * 0.2f
             dx = (ex * gain).coerceIn(-maxStep, maxStep)
             dy = (ey * gain * 0.6f * yMul).coerceIn(-maxStep / 2, maxStep / 2)
             val aligned = abs(ex) < max(target.box.width() * 0.5f, 30f) && abs(ey) < max(target.box.height() * 0.45f, 40f)
-            fire = aligned
+            if (aligned && now - seenAt >= reactMs) {
+                if (now < pauseEnd) fire = false
+                else if (now > burstEnd) {
+                    pauseEnd = now + (Random.nextLong(60, 260) * hu).toLong()
+                    burstEnd = pauseEnd + Random.nextLong(500, 1400)
+                    fire = false
+                } else fire = true
+            }
             val rel = target.box.height() / H
             if (now > nextStrafe) { strafeDir = -strafeDir; nextStrafe = now + Random.nextLong(450, 1300) }
             jx = strafeDir * 0.9f
@@ -107,7 +124,9 @@ class Brain(private val cfg: Config) {
             }
             if (now > nextJump) { if (Random.nextFloat() < 0.5f) tap("jump"); nextJump = now + Random.nextLong(1800, 3500) }
             if (lowHp && now - lastHeal > 4000 && rel < 0.2f) { tap("heal"); lastHeal = now }
+            hadTarget = true
         } else {
+            hadTarget = false
             mode = "استكشاف"
             if (lowHp && now - lastHeal > 4000) { tap("heal"); lastHeal = now }
             val safe = dets.filter { it.label == "safe_zone" }.maxByOrNull { it.box.width() * it.box.height() }

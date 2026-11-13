@@ -32,6 +32,7 @@ object Bus {
     @Volatile var aimDx = 0f
     @Volatile var aimDy = 0f
     @Volatile var tickMs = 100L
+    @Volatile var human = 0.6f
     @Volatile var dets: List<Det> = emptyList()
     @Volatile var status = ""
     val taps = ConcurrentLinkedQueue<PointF>()

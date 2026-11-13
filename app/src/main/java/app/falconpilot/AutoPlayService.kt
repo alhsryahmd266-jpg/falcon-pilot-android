@@ -32,7 +32,11 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
+import android.graphics.PointF
 import android.widget.Toast
 import kotlin.math.abs
 
@@ -50,6 +54,11 @@ class AutoPlayService : Service() {
     private var bmp: Bitmap? = null
     private var btn: TextView? = null
     private var dbg: DebugView? = null
+    private var scanner: ButtonScanner? = null
+    private var scanFinishing = false
+    private var calib: FrameLayout? = null
+    private var calibView: CalibView? = null
+    private var calBtn: TextView? = null
     private var curW = 0; private var curH = 0; private var dpi = 0
     private var frames = 0; private var fpsT = 0L; private var fps = 0
 
@@ -70,6 +79,9 @@ class AutoPlayService : Service() {
             override fun onStop() { main.post { stopSelf() } }
         }, main)
         brain = Brain(cfg)
+        Bus.human = cfg.human
+        for ((k, v) in cfg.loadLayout()) Bus.pos[k]?.let { it.x = v.first; it.y = v.second }
+        if (cfg.calibrated) Bus.joyR = cfg.joyRf * Bus.sh
         bg.post {
             val d = Detector(cfg)
             val ok = d.load()
@@ -78,6 +90,7 @@ class AutoPlayService : Service() {
         }
         setupCapture()
         addButton()
+        addCalButton()
         if (cfg.debug) addDebug()
         main.postDelayed(watch, 1000)
         return START_NOT_STICKY
@@ -107,7 +120,7 @@ class AutoPlayService : Service() {
 
     private fun setupCapture() {
         val (w, h, d) = realSize()
-        curW = w; curH = h; dpi = d
+        curW = w; curH = h; dpi = d; Bus.sw = w; Bus.sh = h
         val r = newReader(w, h)
         reader = r
         vd = projection!!.createVirtualDisplay("fp", w, h, d, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null)
@@ -118,7 +131,7 @@ class AutoPlayService : Service() {
             try {
                 val (w, h, d) = realSize()
                 if (w != curW || h != curH) {
-                    curW = w; curH = h; dpi = d
+                    curW = w; curH = h; dpi = d; Bus.sw = w; Bus.sh = h
                     val old = reader
                     val r = newReader(w, h)
                     reader = r
@@ -134,9 +147,10 @@ class AutoPlayService : Service() {
     private fun onFrame(r: ImageReader) {
         val img = try { r.acquireLatestImage() } catch (e: Throwable) { null } ?: return
         try {
-            if (!Bus.active) return
-            val d = det ?: return
-            if (!d.ready) return
+            val sc = scanner
+            if (sc == null && !Bus.active) return
+            val d = det
+            if (sc == null && (d == null || !d.ready)) return
             val plane = img.planes[0]
             val bw = plane.rowStride / plane.pixelStride
             var b = bmp
@@ -144,7 +158,12 @@ class AutoPlayService : Service() {
                 b = Bitmap.createBitmap(bw, img.height, Bitmap.Config.ARGB_8888); bmp = b
             }
             b!!.copyPixelsFromBuffer(plane.buffer)
-            val res = d.detect(b, img.width, img.height)
+            if (sc != null) {
+                sc.feed(b, img.width, img.height)
+                if (sc.frames >= 40 && !scanFinishing) { scanFinishing = true; val res = sc.result(); main.post { applyScan(res) } }
+                return
+            }
+            val res = d!!.detect(b, img.width, img.height)
             Bus.dets = res
             brain?.step(res, img.width, img.height, d.thumb)
             frames++
@@ -153,6 +172,97 @@ class AutoPlayService : Service() {
         } catch (e: Throwable) {
             Log.e("FP", "frame: $e")
         } finally { img.close() }
+    }
+
+    // ---------- المعايرة ----------
+    private fun addCalButton() {
+        val size = (46 * resources.displayMetrics.density).toInt()
+        val bgd = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xCC6A1B9A.toInt()) }
+        val tv = TextView(this).apply { text = "🎯"; textSize = 18f; gravity = Gravity.CENTER; background = bgd }
+        val lp = WindowManager.LayoutParams(
+            size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = 36; y = 220 + (66 * resources.displayMetrics.density).toInt() }
+        tv.setOnClickListener { startCalibration() }
+        wm.addView(tv, lp)
+        calBtn = tv
+    }
+
+    private fun startCalibration() {
+        if (calib != null) return
+        if (Bus.active) { Bus.active = false; GestureService.instance?.stopPump(); btn?.text = "▶" }
+        val pts = LinkedHashMap<String, PointF>()
+        for (k in listOf("joy", "fire", "jump", "reload", "crouch", "heal", "aim")) pts[k] = Bus.px(k)
+        val cv = CalibView(this, pts)
+        cv.joyR = if (cfg.calibrated) cfg.joyRf * Bus.sh else Bus.joyR.coerceAtLeast(0.09f * Bus.sh)
+        val frame = FrameLayout(this)
+        frame.addView(cv, FrameLayout.LayoutParams(-1, -1))
+        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(0xDD000000.toInt()); gravity = Gravity.CENTER }
+        fun b(t: String, f: () -> Unit) = Button(this).apply { text = t; textSize = 12f; setOnClickListener { f() } }
+        bar.addView(b("🔍 مسح تلقائي") { startScan() })
+        bar.addView(b("R+") { cv.joyR *= 1.1f; cv.invalidate() })
+        bar.addView(b("R−") { cv.joyR *= 0.9f; cv.invalidate() })
+        bar.addView(b("💾 حفظ") {
+            cfg.saveLayout(cv.pts, Bus.sw, Bus.sh); cfg.joyRf = cv.joyR / Bus.sh
+            for ((k, p) in cv.pts) Bus.pos[k]?.let { it.x = p.x / Bus.sw; it.y = p.y / Bus.sh }
+            Bus.joyR = cv.joyR; closeCalibration(); toast("تم حفظ أماكن الأزرار ✅")
+        })
+        bar.addView(b("✖") { closeCalibration() })
+        frame.addView(bar, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        val hint = TextView(this).apply {
+            text = "اسحب كل علامة فوق زرّها الحقيقي في اللعبة ثم اضغط حفظ  •  R+/R− لحجم عصا الحركة"
+            setTextColor(Color.WHITE); setBackgroundColor(0xAA000000.toInt()); textSize = 14f; setPadding(20, 10, 20, 10)
+        }
+        frame.addView(hint, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        val lp = WindowManager.LayoutParams(
+            -1, -1, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        )
+        wm.addView(frame, lp)
+        calib = frame; calibView = cv
+    }
+
+    private fun closeCalibration() {
+        calib?.let { try { wm.removeView(it) } catch (_: Throwable) {} }
+        calib = null; calibView = null
+    }
+
+    private val scanDrive = object : Runnable {
+        var dir = 1
+        override fun run() {
+            if (scanner == null) return
+            Bus.joyX = 0f; Bus.joyY = 1f; Bus.fire = false; Bus.aimDx = dir * Bus.sw * 0.2f; dir = -dir
+            main.postDelayed(this, 450)
+        }
+    }
+
+    private fun startScan() {
+        if (scanner != null) return
+        toast("جاري المسح 6 ثوانٍ… اترك اللعبة ظاهرة (يتحرك الشخص تلقائياً)")
+        calib?.visibility = View.INVISIBLE; btn?.visibility = View.INVISIBLE; calBtn?.visibility = View.INVISIBLE
+        scanFinishing = false
+        scanner = ButtonScanner(curW, curH)
+        GestureService.instance?.startPump()
+        main.post(scanDrive)
+        main.postDelayed({
+            val sc = scanner
+            if (sc != null && !scanFinishing) { scanFinishing = true; val res = sc.result(); applyScan(res) }
+        }, 15000)
+    }
+
+    private fun applyScan(res: ButtonScanner.Result) {
+        scanner = null
+        main.removeCallbacks(scanDrive)
+        GestureService.instance?.stopPump(); Bus.idle()
+        calib?.visibility = View.VISIBLE; btn?.visibility = View.VISIBLE; calBtn?.visibility = View.VISIBLE
+        val cv = calibView ?: return
+        for ((k, p) in res.pts) cv.pts[k]?.set(p.x, p.y)
+        if (res.joyR > 0) cv.joyR = res.joyR
+        cv.invalidate()
+        toast("وُجد ${res.found} عنصر دائري، حُدّد ${res.pts.size} زر. " +
+            (if (res.motionOk) "راجع الأماكن واسحب أي علامة خاطئة ثم احفظ." else "⚠ الخلفية كانت ثابتة؛ ادخل مباراة وأعد المسح."))
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
@@ -195,6 +305,7 @@ class AutoPlayService : Service() {
         val g = GestureService.instance
         if (g == null) { toast("فعّل خدمة Falcon Pilot من إعدادات الوصول أولاً"); return }
         if (det?.ready != true) { toast("النموذج غير جاهز — استورد ملف .tflite من التطبيق"); return }
+        if (calib != null) { toast("أغلق المعايرة أولاً"); return }
         if (!Bus.active) {
             Bus.active = true; g.startPump()
             tv.text = "■"; bgd.setColor(0xCCE53935.toInt())
@@ -221,6 +332,8 @@ class AutoPlayService : Service() {
         Bus.active = false
         GestureService.instance?.stopPump()
         try { btn?.let { wm.removeView(it) } } catch (_: Throwable) {}
+        try { calBtn?.let { wm.removeView(it) } } catch (_: Throwable) {}
+        closeCalibration()
         try { dbg?.let { wm.removeView(it) } } catch (_: Throwable) {}
         try { vd?.release() } catch (_: Throwable) {}
         try { reader?.close() } catch (_: Throwable) {}
