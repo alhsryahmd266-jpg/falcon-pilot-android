@@ -12,7 +12,7 @@ import kotlin.random.Random
  * عقل اللعب: يحوّل ما رآه النموذج إلى أوامر (حركة، تصويب، نار، قفز، علاج، تذخير).
  * الأولويات: قائمة/أزرار واجهة > قتال > علاج > الزون > جمع الغنائم > استكشاف.
  */
-class Brain(private val cfg: Config) {
+class Brain(private val cfg: Config) : Agent {
     private var strafeDir = 1
     private var nextStrafe = 0L
     private var nextJump = 0L
@@ -42,7 +42,7 @@ class Brain(private val cfg: Config) {
 
     private fun tap(name: String) { Bus.taps.add(Bus.px(name)) }
 
-    fun step(dets: List<Det>, W: Int, H: Int, thumb: IntArray?) {
+    override fun step(dets: List<Det>, W: Int, H: Int, thumb: IntArray?) {
         val now = SystemClock.uptimeMillis()
         val dt = if (lastStep == 0L) 100L else min(300L, now - lastStep)
         lastStep = now

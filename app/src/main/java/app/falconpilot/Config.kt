@@ -6,6 +6,7 @@ import java.io.File
 class Config(private val ctx: Context) {
     private val p = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
     val modelFile get() = File(ctx.filesDir, "model.tflite")
+    val policyFile get() = File(ctx.filesDir, "policy.tflite")
     val labelsFile get() = File(ctx.filesDir, "labels.txt")
 
     var conf: Float
@@ -27,6 +28,9 @@ class Config(private val ctx: Context) {
         get() = p.getFloat("crossY", 0.5f)
         set(v) { p.edit().putFloat("crossY", v).apply() }
 
+    var usePolicy: Boolean
+        get() = p.getBoolean("usePolicy", true)
+        set(v) { p.edit().putBoolean("usePolicy", v).apply() }
     var human: Float
         get() = p.getFloat("human", 0.6f)
         set(v) { p.edit().putFloat("human", v).apply() }

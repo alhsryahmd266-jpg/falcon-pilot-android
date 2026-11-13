@@ -7,3 +7,6 @@ enemy, ally, medkit, ammo, weapon, safe_zone, danger_zone, low_health, joystick,
 - الأزرار btn_* و joystick تُعلّم التطبيق مكان أزرار اللعبة تلقائياً.
 ## تصدير النموذج
 `yolo export model=best.pt format=tflite imgsz=640` (FP32/FP16) ثم استورده من التطبيق.
+
+## نموذج السياسة (اختياري، يستبدل القواعد اليدوية)
+انظر `training/falcon_spec.py`: مدخل [1,82] ومخرج [1,9]. استورده من التطبيق (الزر 5) باسم policy.tflite.

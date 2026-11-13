@@ -50,7 +50,7 @@ class AutoPlayService : Service() {
     private val bg = Handler(ht.looper)
     private val main = Handler(Looper.getMainLooper())
     private var det: Detector? = null
-    private var brain: Brain? = null
+    @Volatile private var brain: Agent? = null
     private var bmp: Bitmap? = null
     private var btn: TextView? = null
     private var dbg: DebugView? = null
@@ -86,6 +86,11 @@ class AutoPlayService : Service() {
             val d = Detector(cfg)
             val ok = d.load()
             det = d
+            if (cfg.usePolicy && cfg.policyFile.exists()) {
+                val pol = Policy(cfg)
+                if (pol.load()) { brain = PolicyBrain(cfg, pol); main.post { toast("🧠 نموذج السياسة يعمل") } }
+                else main.post { toast("السياسة: ${pol.info} — سيُستخدم العقل الافتراضي") }
+            }
             main.post { toast(if (ok) "النموذج جاهز: ${d.info}" else "تعذّر تحميل النموذج: ${d.info}") }
         }
         setupCapture()

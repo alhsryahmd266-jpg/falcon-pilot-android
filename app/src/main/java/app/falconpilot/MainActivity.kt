@@ -53,6 +53,7 @@ class MainActivity : Activity() {
         })
         col.addView(button("3) استيراد النموذج (.tflite)") { pick(11) })
         col.addView(button("4) استيراد أسماء الفئات (labels.txt)") { pick(12) })
+        col.addView(button("5) استيراد نموذج السياسة (policy.tflite)", 0xFF7B1FA2.toInt()) { pick(13) })
 
         fun slider(title: String, min: Int, max: Int, cur: Int, on: (Int) -> Unit) {
             val t = text("$title: $cur", 14f, Color.WHITE)
@@ -75,6 +76,7 @@ class MainActivity : Activity() {
             text = title; setTextColor(Color.WHITE); isChecked = cur; setOnCheckedChangeListener { _, c -> on(c) }
             setPadding(0, dp(10), 0, dp(10))
         }
+        col.addView(sw("استخدام نموذج السياسة إن وُجد", cfg.usePolicy) { cfg.usePolicy = it })
         col.addView(sw("عكس اتجاه التصويب العمودي", cfg.invertY) { cfg.invertY = it })
         col.addView(sw("عرض مربعات الاكتشاف (تشخيص)", cfg.debug) { cfg.debug = it })
         col.addView(text("🎯 معايرة الأزرار: شغّل التطبيق ثم ادخل مباراة (تدريب) واضغط الزر البنفسجي 🎯 فوق اللعبة ← «مسح تلقائي» ← عدّل العلامات ← حفظ.", 13f, 0xFFFFD54F.toInt()))
@@ -93,6 +95,7 @@ class MainActivity : Activity() {
         status.text = "${if (ov) "✅" else "❌"} العرض فوق التطبيقات\n" +
             "${if (ac) "✅" else "❌"} خدمة التحكم\n" +
             "${if (cfg.calibrated) "✅" else "⚠️"} معايرة الأزرار\n" +
+            "${if (cfg.policyFile.exists()) "🧠" else "➖"} نموذج السياسة\n" +
             "${if (md) "✅" else "❌"} النموذج ${if (md) "(${cfg.modelFile.length() / 1024} KB)" else ""}\n" +
             "فئات: ${cfg.labels().joinToString(",")}"
     }
@@ -115,8 +118,8 @@ class MainActivity : Activity() {
         super.onActivityResult(req, res, data)
         if (res != RESULT_OK || data == null) return
         when (req) {
-            11, 12 -> {
-                val dst: File = if (req == 11) cfg.modelFile else cfg.labelsFile
+            11, 12, 13 -> {
+                val dst: File = when (req) { 11 -> cfg.modelFile; 12 -> cfg.labelsFile; else -> cfg.policyFile }
                 val uri = data.data ?: return
                 Thread {
                     try {
