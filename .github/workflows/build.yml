@@ -15,15 +15,30 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - name: Export YOLO11n to TFLite (bundled model)
+        continue-on-error: true
         run: |
+          set +e
+          {
           pip install -q ultralytics
           pip install -q "tensorflow-cpu<2.20" tf_keras onnx onnx2tf onnxslim onnxruntime sng4onnx psutil ai-edge-litert
-          pip install -q onnx_graphsurgeon --extra-index-url https://pypi.ngc.nvidia.com || true
+          pip install -q onnx_graphsurgeon --extra-index-url https://pypi.ngc.nvidia.com
           curl -fsSL -o yolo11n.pt https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt
           yolo export model=yolo11n.pt format=tflite imgsz=640 half=False
+          find . -name "*.tflite" -not -path "./app/*"
+          } > export.log 2>&1
+          tail -n 80 export.log > ci-export-tail.log
           mkdir -p app/src/main/assets
-          cp yolo11n_saved_model/yolo11n_float32.tflite app/src/main/assets/yolo_default.tflite
-          ls -la app/src/main/assets
+          F=$(find . -name "yolo11n_float32.tflite" | head -1)
+          if [ -n "$F" ]; then cp "$F" app/src/main/assets/yolo_default.tflite; echo "OK $F" >> ci-export-tail.log; else echo "NO TFLITE" >> ci-export-tail.log; fi
+          ls -la app/src/main/assets >> ci-export-tail.log
+      - name: Push export log
+        if: always()
+        run: |
+          git config user.email ci@falcon.local; git config user.name ci
+          git checkout -B ci-logs
+          git add -f ci-export-tail.log
+          git commit -qm "export log" || true
+          git push -f origin ci-logs || true
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.7" }
       - name: Restore keystore
