@@ -26,6 +26,9 @@ class Detector(private val cfg: Config) {
     private var labels: List<String> = emptyList()
     private var inW = 640
     private var inH = 640
+    private var nchw = false
+    private var planarF: FloatArray? = null
+    private var planarB: ByteArray? = null
     private var isFloat = true
     private lateinit var buf: ByteBuffer
     private lateinit var lb: Bitmap
@@ -59,7 +62,8 @@ class Detector(private val cfg: Config) {
         val t = Interpreter(cfg.activeModel()!!, o)
         val ins = t.getInputTensor(0)
         val s = ins.shape()
-        inH = s[1]; inW = s[2]
+        nchw = s.size == 4 && s[1] == 3 && s[3] != 3   // YOLO26/litert-torch: مدخل [1,3,H,W] بدل [1,H,W,3]
+        if (nchw) { inH = s[2]; inW = s[3] } else { inH = s[1]; inW = s[2] }
         isFloat = ins.dataType() == DataType.FLOAT32
         buf = ByteBuffer.allocateDirect(inW * inH * 3 * (if (isFloat) 4 else 1)).order(ByteOrder.nativeOrder())
         lb = Bitmap.createBitmap(inW, inH, Bitmap.Config.ARGB_8888)
@@ -69,7 +73,7 @@ class Detector(private val cfg: Config) {
         out = Array(os[0]) { Array(os[1]) { FloatArray(os[2]) } }
         itp = t
         ready = true
-        info = "${if (useGpu) "GPU" else "CPU"} ${inW}x$inH out=${os.joinToString("x")} classes=${labels.size}"
+        info = "${if (useGpu) "GPU" else "CPU"}${if (nchw) " NCHW" else ""} ${inW}x$inH out=${os.joinToString("x")} classes=${labels.size}"
     }
 
     fun detect(src: Bitmap, w: Int, h: Int): List<Det> {
@@ -81,7 +85,18 @@ class Detector(private val cfg: Config) {
         lbCanvas.drawBitmap(src, Rect(0, 0, w, h), RectF(padX, padY, padX + nw, padY + nh), paint)
         lb.getPixels(px, 0, inW, 0, 0, inW, inH)
         buf.rewind()
-        if (isFloat) {
+        if (nchw) {
+            val n = px.size
+            if (isFloat) {
+                val a = planarF ?: FloatArray(n * 3).also { planarF = it }
+                for (i in 0 until n) { val p = px[i]; a[i] = ((p shr 16) and 255) / 255f; a[n + i] = ((p shr 8) and 255) / 255f; a[2 * n + i] = (p and 255) / 255f }
+                buf.asFloatBuffer().put(a)
+            } else {
+                val a = planarB ?: ByteArray(n * 3).also { planarB = it }
+                for (i in 0 until n) { val p = px[i]; a[i] = (p shr 16).toByte(); a[n + i] = (p shr 8).toByte(); a[2 * n + i] = p.toByte() }
+                buf.put(a)
+            }
+        } else if (isFloat) {
             val fb = buf.asFloatBuffer()
             for (p in px) {
                 fb.put(((p shr 16) and 255) / 255f); fb.put(((p shr 8) and 255) / 255f); fb.put((p and 255) / 255f)
